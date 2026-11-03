@@ -1,12 +1,10 @@
 //! Workspace tooling: `cargo xtask <command>`.
 //!
-//! Pure Rust (std only). External tools (`cargo`) are invoked through `std::process::Command`.
+//! Shared `craft-xtask` tasks (`version`, `ico`, `icns`) plus launcher-specific local tasks.
+//! External tools (`cargo`) are invoked through `std::process::Command`.
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::unimplemented, clippy::todo, clippy::unreachable)]
 
-mod icns;
-mod ico;
 mod local;
-mod version;
 
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitCode};
@@ -35,18 +33,21 @@ const WASM_PACKAGES: &[&str] = &["artcraft-launcher-core", "artcraft-launcher-we
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
     let rest: Vec<&str> = args.iter().skip(1).map(String::as_str).collect();
+    let task_args = args.get(1..).unwrap_or_default();
+    let shared = craft_xtask::Configs::for_root(root());
+    let ico_cfg = craft_xtask::ico::Config::default();
     let result = match args.first().map(String::as_str) {
         Some("ci") => cmd_ci(),
         Some("wasm") => cmd_wasm(),
-        Some("version") => version::run(&root(), &rest),
-        Some("ico") => ico::run(&rest),
-        Some("icns") => icns::run(&rest),
+        Some("version") => craft_xtask::version::run(&shared.version, task_args),
+        Some("ico") => craft_xtask::ico::run(&ico_cfg, task_args),
+        Some("icns") => craft_xtask::ico::run_icns(&ico_cfg, task_args),
         Some("local") => local::run(&rest),
         Some("-h" | "--help" | "help") | None => {
-            print!("{USAGE}");
+            print!("{}", usage());
             Ok(())
         }
-        Some(other) => Err(format!("unknown command `{other}`\n\n{USAGE}")),
+        Some(other) => Err(format!("unknown command `{other}`\n\n{}", usage())),
     };
     match result {
         Ok(()) => ExitCode::SUCCESS,
@@ -57,10 +58,15 @@ fn main() -> ExitCode {
     }
 }
 
+fn usage() -> String {
+    format!("{USAGE}\nShared task syntax:\n  {}\n  {}\n", craft_xtask::version::cli_help(), craft_xtask::ico::cli_help())
+}
+
 /// Workspace root (parent of the xtask crate).
 pub fn root() -> PathBuf {
-    let manifest_dir = Path::new(env!("CARGO_MANIFEST_DIR"));
-    manifest_dir.parent().unwrap_or(manifest_dir).to_path_buf()
+    let dir = std::env::var_os("CARGO_MANIFEST_DIR").map(PathBuf::from).filter(|dir| dir.join("Cargo.toml").is_file());
+    let dir = dir.unwrap_or_else(|| PathBuf::from(env!("CARGO_MANIFEST_DIR")));
+    dir.parent().unwrap_or(Path::new(".")).to_path_buf()
 }
 
 pub fn cargo() -> Command {

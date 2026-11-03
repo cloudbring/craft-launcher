@@ -297,7 +297,7 @@ fn package_command(repo: &Path, o: &Opts) -> Result<Command, String> {
 /// `[workspace.package] version` (or `[package]`) of the checkout.
 fn checkout_version(repo: &Path) -> Result<String, String> {
     let manifest = std::fs::read_to_string(repo.join("Cargo.toml")).map_err(|e| format!("couldn't read Cargo.toml ({e})"))?;
-    crate::version::read(&manifest)
+    craft_xtask::version::read(&manifest)
 }
 
 fn git(repo: &Path, args: &[&str]) -> Result<String, String> {
@@ -390,7 +390,7 @@ fn asset_files(dir: &Path) -> Result<Vec<String>, String> {
 fn write_sums(dir: &Path, files: &[String]) -> Result<(), String> {
     let mut sums = String::new();
     for name in files {
-        let _ = writeln!(sums, "{}  {name}", sha256(&dir.join(name))?);
+        let _ = writeln!(sums, "{}  {name}", craft_xtask::sha256_hex(&dir.join(name))?);
     }
     write(&dir.join(SUMS), &sums)
 }
@@ -404,24 +404,6 @@ fn read_sums(dir: &Path) -> BTreeMap<String, String> {
             Some((name.trim().trim_start_matches('*').to_string(), hash.to_ascii_lowercase()))
         })
         .collect()
-}
-
-/// SHA-256 through the system's own tool (files are hundreds of megabytes).
-fn sha256(path: &Path) -> Result<String, String> {
-    let out = if cfg!(windows) {
-        Command::new("certutil").arg("-hashfile").arg(path).arg("SHA256").output()
-    } else if cfg!(target_os = "macos") {
-        Command::new("shasum").args(["-a", "256"]).arg(path).output()
-    } else {
-        Command::new("sha256sum").arg(path).output()
-    }
-    .map_err(|e| format!("couldn't hash {} ({e})", path.display()))?;
-    let text = String::from_utf8_lossy(&out.stdout);
-    // shasum/sha256sum: "<hash>  <file>"; certutil: the hash alone on the second line.
-    text.split_whitespace()
-        .find(|w| w.len() == 64 && w.bytes().all(|b| b.is_ascii_hexdigit()))
-        .map(str::to_ascii_lowercase)
-        .ok_or_else(|| format!("couldn't hash {}", path.display()))
 }
 
 // ---- feed ---------------------------------------------------------------------------------------
