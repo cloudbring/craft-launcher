@@ -311,6 +311,7 @@ name = "artcraft-launcher-native"
 version = "0.14.0"
 dependencies = [
  "artcraft-launcher-core",
+ "craft-atomic",
  "craft-update",
  "dirs 6.0.0",
  "dunce",
@@ -960,6 +961,14 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "59ed5838eebb26a2bb2e58f6d5b5316989ae9d08bab10e0e6d103e656d1b0280"
 dependencies = [
  "libc",
+]
+
+[[package]]
+name = "craft-atomic"
+version = "0.1.0"
+source = "git+https://github.com/storytold/craft-libs?rev=4323a0f90e69e6e7a064607daacc25d081f58e1d#4323a0f90e69e6e7a064607daacc25d081f58e1d"
+dependencies = [
+ "rustix 1.1.5",
 ]
 
 [[package]]

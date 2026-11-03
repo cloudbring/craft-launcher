@@ -1261,7 +1261,10 @@ pub(crate) mod linux {
         // The AppImage is the program the user just installed and must be executable; 0o755 is
         // not group/world-writable.
         std::fs::set_permissions(&partial, std::fs::Permissions::from_mode(0o755)).map_err(|e| e.to_string())?; // NOSONAR
+        craft_atomic::sync_file(&std::fs::File::open(&partial).map_err(|e| format!("couldn't open the staged AppImage ({e})"))?)
+            .map_err(|e| format!("couldn't sync the staged AppImage ({e})"))?;
         std::fs::rename(&partial, &dest).map_err(|e| format!("couldn't put the AppImage in place ({e})"))?;
+        let _ = craft_atomic::AtomicFs::sync_dir(&craft_atomic::RealFs, &dir);
         let mut removed = Vec::new();
         if let Some(old) = previous.filter(|r| r.kind == PackageKind::AppImage && r.path != dest)
             && std::fs::remove_file(&old.path).is_ok()
@@ -1473,7 +1476,7 @@ pub mod macos {
 
     use artcraft_launcher_core::version::Version;
 
-    use super::{CraftApp, InstallSource, Installed, Path, PathBuf, Paths, Release, process, staging_dir, swap_into_place};
+    use super::{CraftApp, InstallSource, Installed, Path, PathBuf, Paths, Release, process, swap_into_place};
 
     const SYSTEM_APPLICATIONS: &str = "/Applications";
 

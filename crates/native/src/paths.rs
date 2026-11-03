@@ -1,6 +1,5 @@
 //! Where the launcher keeps its own files.
 
-use std::io::Write;
 use std::path::PathBuf;
 
 /// The launcher's folders.
@@ -79,12 +78,14 @@ impl Paths {
 
 /// Writes `bytes` to `path` via a temporary file and a rename, so a crash never leaves half a file.
 pub fn write_atomic(path: &std::path::Path, bytes: &[u8]) -> Result<(), String> {
+    write_atomic_with_fs(&craft_atomic::RealFs, path, bytes)
+}
+
+fn write_atomic_with_fs(fs: &dyn craft_atomic::AtomicFs, path: &std::path::Path, bytes: &[u8]) -> Result<(), String> {
     let dir = path.parent().ok_or("no parent folder")?;
     std::fs::create_dir_all(dir).map_err(|e| format!("couldn't create {} ({e})", dir.display()))?;
-    let mut tmp = tempfile::NamedTempFile::new_in(dir).map_err(|e| format!("couldn't create a temporary file in {} ({e})", dir.display()))?;
-    tmp.write_all(bytes).map_err(|e| format!("couldn't write {} ({e})", tmp.path().display()))?;
-    tmp.persist(path).map_err(|e| format!("couldn't replace {} ({e})", path.display()))?;
-    Ok(())
+    craft_atomic::atomic_write_custom(fs, craft_atomic::RenameRetry::platform(), path, bytes)
+        .map_err(|e| format!("couldn't replace {} ({e})", path.display()))
 }
 
 /// Portable mode: a `portable.txt` beside the executable keeps everything in
@@ -98,6 +99,54 @@ pub fn portable_root() -> Option<PathBuf> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use craft_atomic::{AtomicFs, NewFilePermissions, RealFs};
+    use std::fs::File;
+    use std::io;
+    use std::path::Path;
+
+    struct FailingSync;
+
+    impl AtomicFs for FailingSync {
+        fn create_new(&self, path: &Path, permissions: NewFilePermissions) -> io::Result<File> {
+            RealFs.create_new(path, permissions)
+        }
+
+        fn sync(&self, _file: &File) -> io::Result<()> {
+            Err(io::Error::other("injected sync failure"))
+        }
+
+        fn rename(&self, from: &Path, to: &Path) -> io::Result<()> {
+            RealFs.rename(from, to)
+        }
+
+        fn hard_link(&self, from: &Path, to: &Path) -> io::Result<()> {
+            RealFs.hard_link(from, to)
+        }
+
+        fn remove(&self, path: &Path) -> io::Result<()> {
+            RealFs.remove(path)
+        }
+
+        fn sync_dir(&self, dir: &Path) -> io::Result<()> {
+            RealFs.sync_dir(dir)
+        }
+
+        fn set_permissions(&self, file: &File, permissions: std::fs::Permissions) -> io::Result<()> {
+            RealFs.set_permissions(file, permissions)
+        }
+    }
+
+    #[test]
+    fn atomic_write_syncs_before_replacing_the_destination() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("installed.json");
+        std::fs::write(&path, b"old manifest").unwrap();
+
+        let error = write_atomic_with_fs(&FailingSync, &path, b"new manifest").unwrap_err();
+        assert!(error.contains("injected sync failure"));
+        assert_eq!(std::fs::read(&path).unwrap(), b"old manifest");
+        assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), 1);
+    }
 
     #[test]
     fn atomic_write_does_not_overwrite_an_unrelated_temporary_file() {

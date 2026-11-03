@@ -4,6 +4,7 @@ use std::io::{Read, Write};
 use std::path::Path;
 
 use artcraft_launcher_core::protocol::{CANCELLED, PAUSED};
+use craft_atomic::AtomicFs;
 use std::time::Duration;
 
 use sha2::{Digest, Sha256};
@@ -262,6 +263,9 @@ impl Http {
                     }
                     return Err(e);
                 }
+                if let Some(dir) = dest.parent() {
+                    let _ = craft_atomic::RealFs.sync_dir(dir);
+                }
                 return Ok(());
             }
             let _ = std::fs::remove_file(&part);
@@ -376,7 +380,7 @@ impl Http {
             let n = match reader.read(&mut buf) {
                 Ok(n) => n,
                 Err(e) => {
-                    let _ = file.sync_all();
+                    let _ = craft_atomic::sync_file(&file);
                     return Err(retry(format!("the connection dropped: {e}"), done > at_start));
                 }
             };
@@ -392,7 +396,7 @@ impl Http {
             done = next_done;
             progress(Transfer::Bytes { done, total });
         }
-        file.sync_all().map_err(|e| AttemptError::Fatal(format!("couldn't save the download ({e})")))?;
+        craft_atomic::sync_file(&file).map_err(|e| AttemptError::Fatal(format!("couldn't save the download ({e})")))?;
         if total > 0 && done < total {
             return Err(retry(format!("the connection closed early ({done} of {total} bytes)"), done > at_start));
         }
